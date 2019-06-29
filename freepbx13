@@ -1,0 +1,177 @@
+###########################################################################
+# CentOS 6.7 (Minimal) + Asterisk 13 + FreePBX 13 Install Script          #
+###########################################################################
+/bin/cat <<'EOTT' >/etc/yum.repos.d/FreePBX.repo
+#Core PBX Packages
+[pbx]
+name=pbx
+mirrorlist=http://mirrorlist.freepbxdistro.org/?pbxver=10.13.66&release=6.6&arch=$basearch&repo=pbx
+#baseurl=http://yum.freepbxdistro.org/pbx/10.13.66/$basearch/
+gpgcheck=0
+enabled=1
+
+#Schmooze Commercial Packages
+[schmooze-commercial]
+name=schmooze-commercial
+mirrorlist=http://mirrorlist.schmoozecom.net/?release=6.6&arch=$basearch&repo=schmooze-commercial
+#baseurl=http://yum.schmoozecom.net/schmooze-commercial/$release/$basearch/
+gpgcheck=0
+enabled=1
+EOTT
+###########################################################################
+echo
+echo "Clean Yum just to make sure we have a fresh list"
+echo
+yum clean all
+yum update -y
+###########################################################################
+# Disable selinux
+setenforce 0
+rm -rf /etc/selinux/config
+touch /etc/selinux/config
+echo "SELINUX=disabled" > /etc/selinux/config
+###########################################################################
+
+# Install Asterisk 13
+yum -y install asterisk13 asterisk13-addons asterisk13-curl asterisk13-odbc asterisk13-voicemail
+
+# Asterisk Sounds
+yum -y install asterisk-sounds-core-en-alaw asterisk-sounds-core-en-ulaw asterisk-sounds-core-en-gsm asterisk-sounds-extra-en-alaw asterisk-sounds-extra-en-ulaw asterisk-sounds-extra-en-gsm moh-sounds
+
+# Play audio files from asterisk
+yum -y install mpg123 sox # esound-devel
+
+# Install spandsp for faxing
+# yum -y install spandsp spandsp-devel
+
+# fax conversion applications
+# yum -y install libtiff libtiff-devel 
+yum -y install ghostscript ghostscript-fonts
+
+# ImageMagick for EPM to convert images
+# yum -y install ImageMagick
+
+# Remove sendmail and install postifx to handle email
+# yum -y install postfix mailx cyrus-sasl-plain
+
+# Asterisk Switch Version Script
+# yum -y install asterisk-version-switch
+
+# Package install information for firstboot use
+# yum -y install python-simplejson
+
+# Fail2ban RPM for Security
+yum -y install fail2ban
+
+# NTP & Cron
+yum -y install ntp incron
+
+# Various utilities
+yum -y install wget vim
+
+# FreePBX
+yum -y install freepbx php-5.3-zend-guard-loader mysql-connector-odbc
+
+# Sysadmin
+# yum -y install sysadmin 
+
+# Make a bunch of processes start on boot
+/sbin/chkconfig httpd on
+/sbin/chkconfig mysqld on
+/sbin/chkconfig ntpd on
+/sbin/chkconfig incrond on
+/sbin/chkconfig fail2ban on
+/sbin/chkconfig asterisk off
+
+# COMMON THINGS BETWEEN ALL DISTROS
+# ntp settings
+# echo "driftfile /var/lib/ntp/drift" > /etc/ntp.conf
+# echo "server 0.pool.ntp.org" >> /etc/ntp.conf
+# echo "server 1.pool.ntp.org" >> /etc/ntp.conf
+# echo "server 2.pool.ntp.org" >> /etc/ntp.conf
+# echo "server 127.127.1.0" >> /etc/ntp.conf
+# echo "fudge 127.127.1.0 stratum 10" >> /etc/ntp.conf
+
+# This makes the machine only respond to arps when the arp is received on the correct interface
+echo "#This makes the machine only respond to arps when the arp is received on the correct interface" >> /etc/sysctl.conf
+echo "net.ipv4.conf.all.arp_ignore = 1" >> /etc/sysctl.conf
+
+# Change which user apache runs as so freepbx can modify asterisk files
+sed -i "s/^User apache$/User asterisk/" /etc/httpd/conf/httpd.conf
+sed -i "s/^Group apache$/Group asterisk/" /etc/httpd/conf/httpd.conf
+
+# The standard timeout will prevent us from downloading modules and installing them
+sed -i "s/^Timeout 120$/Timeout 300/" /etc/httpd/conf/httpd.conf
+
+# Allow overrides in apache for FreePBX.
+sed -i "s/AllowOverride None/AllowOverride All/"  /etc/httpd/conf/httpd.conf
+
+# Improve the amount of memory php can use
+sed -i "s/^memory_limit = 16M.*$/memory_limit = 128M/" /etc/php.ini
+sed -i "s/^memory_limit = 32M.*$/memory_limit = 128M/" /etc/php.ini
+
+# fix php.ini config parameters 
+sed -i 's/upload_max_filesize = .*/upload_max_filesize = 100M/' /etc/php.ini
+sed -i 's/post_max_size = .*/post_max_size = 100M/' /etc/php.ini
+
+# Various file ownership changes
+/bin/chown -R asterisk:asterisk /var/www/html
+/bin/chown -R asterisk:asterisk /var/lib/php/session
+/bin/chown -R asterisk:asterisk /etc/asterisk
+
+# Create rc.local
+/bin/echo "# Make sure asterisk starts on boot" >> /etc/rc.local
+/bin/echo "/usr/sbin/fwconsole start" >> /etc/rc.local
+
+# change sshd_config settings
+# sed -i "s/#UseDNS yes/UseDNS no/g" /etc/ssh/sshd_config
+
+# create sudoers settings for user asterisk
+sed -i "s/Defaults\s*requiretty/#Defaults requiretty/g" /etc/sudoers
+
+# run a weekly updatedb to keep locate up to date
+echo -e "#"\!"/bin/bash\nupdatedb" > /etc/cron.weekly/update-locate.sh
+chmod +x /etc/cron.weekly/update-locate.sh
+
+# Change home directory for Asterisk
+cp -a /etc/skel /home/asterisk/ && chown -R asterisk:asterisk /home/asterisk && sed -i 's|^\(asterisk:.*\)/var/lib/asterisk[^:]*\(.*\)|\1/home/asterisk/\2|' /etc/passwd && chsh -s /bin/bash asterisk
+
+# Reboot machine automatically after 20 seconds if it kernel panics
+# cat << EOF >> /etc/sysctl.conf
+## Reboot machine automatically after 20 seconds if it kernel panics
+# kernel.panic = 20
+# EOF
+
+fwconsole chown
+# pull in all freepbx modules and load them
+# fwconsole moduleadmin download firewall
+# fwconsole moduleadmin install firewall
+fwconsole moduleadmin uninstall dahdiconfig
+fwconsole moduleadmin delete dahdiconfig
+fwconsole moduleadmin uninstall sipstation
+fwconsole moduleadmin delete sipstation
+fwconsole moduleadmin uninstall digium_phones
+fwconsole moduleadmin delete digium_phones
+fwconsole moduleadmin uninstall cxpanel
+fwconsole moduleadmin delete cxpanel
+# fwconsole moduleadmin download sysadmin
+# fwconsole moduleadmin install sysadmin
+fwconsole moduleadmin upgradeall
+fwconsole moduleadmin upgradeall # die hard upgrade
+fwconsole moduleadmin upgrade cidlookup
+fwconsole moduleadmin enable cidlookup
+fwconsole moduleadmin upgrade donotdisturb
+fwconsole moduleadmin enable donotdisturb
+fwconsole moduleadmin upgrade findmefollow
+fwconsole moduleadmin enable findmefollow
+fwconsole moduleadmin upgrade dashboard
+fwconsole moduleadmin enable dashboard
+fwconsole moduleadmin upgradeall
+fwconsole moduleadmin enable dashboard
+fwconsole moduleadmin upgradeall
+fwconsole moduleadmin upgradeall # die hard upgrade
+fwconsole chown
+fwconsole reload
+
+echo "The installation is now complete"
+echo "Please reboot your box now for all changes to take effect"

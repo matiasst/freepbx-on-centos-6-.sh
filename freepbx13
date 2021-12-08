@@ -173,5 +173,5 @@ fwconsole moduleadmin upgradeall # die hard upgrade
 fwconsole chown
 fwconsole reload
 
-echo "The installation is now complete"
+echo "The installation is now complete enjoy"
 echo "Please reboot your box now for all changes to take effect"
